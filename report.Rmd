@@ -8,7 +8,7 @@ author:
 - Stas Malyshev (Engineering)
 - Dan Garry (Product Management)
 - Deborah Tankersley (Product Management)
-date: "July 11, 2016"
+date: "July 12, 2016"
 output:
   pdf_document:
     fig_caption: yes
@@ -64,24 +64,31 @@ to_ordinal <- function(x) {
 }
 ```
 
-\renewcommand{\abstractname}{Executive Summary}
+\renewcommand{\abstractname}{\Large Executive Summary}
 \begin{abstract}
-Our current efforts to increase relevancy of search results rely on language detection (via the TextCat library) to provide the user with results from a potentially more relevant alternate language. That is, users who were enrolled in the test group and searched English Wikipedia (``enwiki") in French received additional ``interwiki" results from French Wikipedia.
+\large
+Our current efforts to increase relevancy of search results rely on language detection (via the TextCat library) to provide the user with results from a potentially more relevant alternate language. For example, users who were enrolled in the test group and searched English Wikipedia in French received additional ``interwiki" results from French Wikipedia.
 
-The test groups not only had a substantially lower zero results rate (58\% in control group vs 43-45\% in the two test groups), but they had a higher clickthrough rate (44\% in the control group vs 49-50\% in the two test groups), indicating that we may be providing users with relevant results that they would not have gotten otherwise. Interestingly, users first clicked on the first and second search results from enwiki, rather than the potentially more relevant interwiki results.
+The test groups not only had a substantially lower zero results rate (58\% in control group vs 43-45\% in the two test groups), but they had a higher clickthrough rate (44\% in the control group vs 49-50\% in the two test groups), indicating that we may be providing users with relevant results that they would not have gotten otherwise. Interestingly, users first clicked on the first and second search results from same-language wiki, rather than the potentially more relevant interwiki results.
 
-We recommendation is to proceed with the test on other Wikipedias, but to also record the confidence of the language detection. We suspect there may be a correlation between the confidence -- a proxy for the potential relevancy of the results -- and the likelihood that the user will click on the interwiki result(s).
+We recommend continuing our work with TextCat and possibly deploying it to production. We should consider recording the confidence of the language detection, as there may be a correlation between the confidence -- a proxy for the potential relevancy of the results -- and the likelihood that the user will click on the interwiki result(s).
 \end{abstract}
+
+\normalsize
+
+\newpage
 
 ## Introduction
 
 In our investigation of search queries, we have found that sometimes people write search queries in a language different from the language of the wiki they are searching. Sometimes this works (some articles may have translations on the page) and sometimes it does not. So we asked ourselves, "What if we could detect the language of the query and then if the user did not get many -- if any -- results on their current wiki, what if just searched the potentially correct wiki and gave the user THOSE results?" To that end, we decided to proceed with adding language detection to Cirrus search (see [T118278](https://phabricator.wikimedia.org/T118278)).
 
-[TextCat](https://www.mediawiki.org/wiki/TextCat) is a software library for detecting language based on [n-gram text categorization](https://en.wikipedia.org/wiki/N-gram), which we ported to PHP for use in Cirrus search. In this initial A/B test of the TextCat software, we deployed the code to English Wikipedia ("enwiki") to determine how people engage with the "interwiki" results (results from a Wikipedia in another language).
+![A screenshot showing what happens when a user searches English Wikipedia using a query written in Russian.](Screen Shot 2016-07-12 at 4.47.25 PM.png)
+
+[TextCat](https://www.mediawiki.org/wiki/TextCat) is a software library for detecting language based on [n-gram text categorization](https://en.wikipedia.org/wiki/N-gram), which we ported to PHP for use in Cirrus search. In this initial A/B test of the TextCat software, we deployed the code to English, French, Spanish, Italian, and German Wikipedias ("enwiki", ..., "dewiki" = "same-wiki") to determine how people engage with the "interwiki" results (results from a Wikipedia in another language).
 
 ## Methods
 
-Users who received less than 3 enwiki results and whose language we were able to detect (using either TextCat or combination of TextCat and Accept-Language header) received interwiki results. Our [initial attempt](https://phabricator.wikimedia.org/T121542) ran from 16 March 2016 to 31 May 2016, but a few issues with the data (see [T137158#2359494](https://phabricator.wikimedia.org/T137158#2359494)) meant that we had to resolve them and then restart the test. The [second attempt](https://phabricator.wikimedia.org/T137163) ran from 16 June 2016 to 05 July 2016. A total of 49,623 sessions (users) and 116,462 searches were recorded using the MediaWiki Event Logging system. The data analysis was performed using [R](https://www.r-project.org/) in [RStudio](https://www.rstudio.com/) and the packages: magrittr, uaparser, dplyr, tidyr, and [BCDA](https://github.com/bearloga/BCDA).
+Test group users who received less than 3 same-wiki results and whose language we were able to detect (using either TextCat or combination of TextCat and Accept-Language header) received [interwiki results](https://en.wikipedia.org/w/index.php?fulltext=1&search=постройка+финансировалась&cirrusUserTesting=textcat2:b). We still tried to detect a language for users in the control group so they experience the same lag that the users in the test groups did; this also makes for more valid comparisons. Our [initial attempt](https://phabricator.wikimedia.org/T121542) ran from 16 March 2016 to 31 May 2016, but a few issues with the data (see [T137158#2359494](https://phabricator.wikimedia.org/T137158#2359494)) meant that we had to resolve them and then restart the test. The [second attempt](https://phabricator.wikimedia.org/T137163) ran from 16 June 2016 to 05 July 2016. A total of 49,623 sessions (users) and 116,462 searches were recorded using the MediaWiki Event Logging system. The data analysis was performed using [R](https://www.r-project.org/) in [RStudio](https://www.rstudio.com/) and the packages: magrittr, uaparser, dplyr, tidyr, and [BCDA](https://github.com/bearloga/BCDA).
 
 ## Results
 
@@ -126,21 +133,21 @@ events %>%
   knitr::kable(caption = "Number of sessions (for which we detected a language in one of the search queries) per group.")
 ```
 
-```{r eda_ctr_by_group_enwiki_only, results = 'asis'}
+```{r eda_ctr_by_group_samewiki_only, results = 'asis'}
 sessions %>%
-  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked an enwiki result", "Did not")) %>%
+  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked a same-wiki result", "Did not")) %>%
   group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
            any_enwiki_clicks) %>%
   tally() %>%
   xtabs(n ~ group + any_enwiki_clicks, data = .) %>%
   prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportion of sessions that clicked specifically on an English Wikipedia result vs proportion that did not click on any result. The two test groups ('b' and 'c') have been combined into a single group.")
+  knitr::kable(caption = "Proportion of sessions that clicked specifically on an En/Fr/Es/It/De Wikipedia result (respectively) vs proportion that did not click on any result. The two test groups ('b' and 'c') have been combined into a single group.")
 ```
 
-```{r cda_ctr_by_group_enwiki_only, results = 'asis'}
+```{r cda_ctr_by_group_samewiki_only, results = 'asis'}
 set.seed(0)
 test_1 <- sessions %>%
-  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked an enwiki result", "Did not")) %>%
+  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked a same-wiki result", "Did not")) %>%
   group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
            any_enwiki_clicks) %>%
   tally() %>%
@@ -157,7 +164,7 @@ sessions %>%
   tally() %>%
   xtabs(n ~ group + clickthrough, data = .) %>%
   prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportions of clicks on results (enwiki and interwiki). The two test groups ('b' and 'c') have been combined into a single group.")
+  knitr::kable(caption = "Proportions of clicks on results (same-wiki and interwiki). The two test groups ('b' and 'c') have been combined into a single group.")
 ```
 
 ```{r cda_ctr_by_group_combined, results = 'asis'}
@@ -178,7 +185,7 @@ sessions %>%
   tally() %>%
   xtabs(n ~ group + clickthrough, data = .) %>%
   prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportion of sessions that clicked on a result vs that did not click on any result. For the groups 'b' and 'c', these clickthrough rates account for both types of results that could be clicked -- enwiki and interwiki.")
+  knitr::kable(caption = "Proportion of sessions that clicked on a result vs that did not click on any result. For the groups 'b' and 'c', these clickthrough rates account for both types of results that could be clicked -- same-wiki and interwiki.")
 ```
 
 ```{r cda_ctr_by_group}
@@ -198,25 +205,25 @@ rm(temp)
 searches %>%
   keep_where(detected_language, test_group != "a (control)", clickthrough) %>%
   group_by(interwiki = ifelse(zero_interwiki_results, "zero interwiki results", "some interwiki results"),
-           enwiki = ifelse(zero_enwiki_results, "zero enwiki results", "some enwiki results")) %>%
+           enwiki = ifelse(zero_enwiki_results, "zero same-wiki results", "some same-wiki results")) %>%
   tally() %>%
   xtabs(n ~ interwiki + enwiki, data = .) %>%
   add_props %>%
-  knitr::kable(caption = "Counts and proportions of searches with some or no enwiki and interwiki results where we detected a language and the user clicked on a result.")
+  knitr::kable(caption = "Counts and proportions of searches with some or no En/Fr/Es/It/De Wikipedia results and some or no interwiki results where we detected a language and the user clicked on a result.")
 ```
 
-An interesting thing to note is that of the 654 searches made by the two test groups 'b' and 'c' that had (1) had a language detected, and (2) a clickthrough: only 28.13% (184) searches had both interwiki and enwiki results. We were curious how those users engaged with their mixed results, so we looked into and found that users almost overwhelmingly initially clicked on the 1-2 enwiki results that show up first, rather than the interwiki results shown underneath the enwiki ones. This is not a particularly new finding, as we have known and seen for a while that a vast majority of users just click on the first couple results. This is interesting because it introduces two interesting possibilities: either the interwiki results are not as relevant as we hope them to be, or users just click on the first or second result even if the results underneath are actually, objectively more relevant because they were fetched from the Wikipedia of the query's language.
+An interesting thing to note is that of the 654 searches made by the two test groups 'b' and 'c' that had (1) had a language detected, and (2) a clickthrough: only 28.13% (184) searches had both interwiki and same-wiki results. We were curious how those users engaged with their mixed results, so we looked into and found that users almost overwhelmingly initially clicked on the 1-2 same-wiki results that show up first, rather than the interwiki results shown underneath the same-wiki ones. This is not a particularly new finding, as we have known and seen for a while that a vast majority of users just click on the first couple results. This is interesting because it introduces two interesting possibilities: either the interwiki results are not as relevant as we hope them to be, or users just click on the first or second result even if the results underneath are actually, objectively more relevant because they were fetched from the Wikipedia of the query's language.
 
 ```{r eda_first_ctr}
 results <- searches %>%
   keep_where(detected_language, test_group != "a (control)") %>%
   keep_where(!zero_interwiki_results & !zero_enwiki_results, clickthrough) %>%
-  mutate(`enwiki results` = results_returned - new_results_returned) %>%
-  group_by(`enwiki results`, first_click_position, `first clicked on` = ifelse(first_click_is_interwiki, "an interwiki result", "an enwiki result")) %>%
+  mutate(`same-wiki results` = results_returned - new_results_returned) %>%
+  group_by(`same-wiki results`, first_click_position, `first clicked on` = ifelse(first_click_is_interwiki, "an interwiki result", "a same-wiki result")) %>%
   tally() %>%
   ungroup %>%
   mutate(first_click_position = ifelse(first_click_position <= 3, first_click_position, 4)) %>%
-  group_by(`enwiki results`, `first clicked on`, first_click_position) %>%
+  group_by(`same-wiki results`, `first clicked on`, first_click_position) %>%
   summarize(n = sum(n)) %>%
   mutate(first_click_position = paste(to_ordinal(first_click_position) , 'result')) %>%
   spread(first_click_position, n, fill = 0) %>%
@@ -226,7 +233,7 @@ results <- searches %>%
     .
   }
 results[, -(1:2)] <- add_props(results[, -(1:2)], 1:2)
-knitr::kable(results, caption = "Do people just click on the first link even if the better result is the interwiki result that's lower in the list? Seems like it.")
+knitr::kable(results, caption = "Counts of clickthroughs by number of same-wiki results shown, type of result clicked first, and the position of the result (1st, 2nd, 3rd, 4th or lower). The positions are independent, although the 1st interwiki result is the 2nd result shown on the page (in case of 1 same-language wiki result) or 3rd result (in case of 2 same-language wiki results). There are two technical anomalies that have a '4th result or lower' as a same-wiki result, but the maximum position that a same-wiki result can have is technically '2nd'.")
 ```
 
 ## Conclusion
@@ -240,7 +247,7 @@ This initial evidence suggests that using TextCat to detect language and present
 \begin{landscape}
 
 ```{r bcda_compilation, include = FALSE}
-present_bbfit(list("Clicked on an enwiki result" = test_1,
+present_bbfit(list("Clicked on a same-wiki result" = test_1,
                    "Clicked on a result (controls vs test)" = test_2,
                    "Clicked on a result (b vs a)" = test_3,
                    "Clicked on a result (c vs a)" = test_4,
@@ -256,7 +263,7 @@ present_bbfit(list("Clicked on an enwiki result" = test_1,
 \hline
 \textbf{Outcome} & $N_\text{1}$ & $N_\text{2}$ & $P_\text{1}$ & $P_\text{2}$ & \textbf{Difference} ($P_\text{1} - P_\text{2}$) & \textbf{Relative Risk} & \textbf{Odds Ratio}\\
 \hline
-Clicked on an enwiki result & 2069 & 531 & 44.90\% (42.74\%, 47.06\%) & 44.10\% (39.93\%, 48.31\%) & 0.81\% (-3.95\%, 5.45\%) & 1.02 (0.92, 1.14) & 1.04 (0.85, 1.25)\\
+Clicked on a same-wiki result & 2069 & 531 & 44.90\% (42.74\%, 47.06\%) & 44.10\% (39.93\%, 48.31\%) & 0.81\% (-3.95\%, 5.45\%) & 1.02 (0.92, 1.14) & 1.04 (0.85, 1.25)\\
 \hline
 \rowcolor{LightYellow}
 Clicked on a result ('test' vs 'controls') & 2069 & 531 & 49.63\% (47.46\%, 51.76\%) & 44.06\% (39.78\%, 48.38\%) & 5.57\% (0.72\%, 10.30\%) & 1.13 (1.01, 1.26) & 1.26 (1.03, 1.52)\\
