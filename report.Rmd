@@ -1,7 +1,5 @@
 ---
 title: "Report on Cirrus Search A/B Test"
-subtitle: "TextCat Language Detection on English Wikipedia"
-fontsize: 11pt
 author:
 - Mikhail Popov (Analysis & Report)
 - Trey Jones (Engineering & Review)
@@ -9,7 +7,8 @@ author:
 - David Causse (Engineering)
 - Stas Malyshev (Engineering)
 - Dan Garry (Product Management)
-date: "May 24, 2016"
+- Deborah Tankersley (Product Management)
+date: "July 11, 2016"
 output:
   pdf_document:
     fig_caption: yes
@@ -20,13 +19,257 @@ output:
     latex_engine: xelatex
   html_document: default
 geometry: margin=1in
+subtitle: TextCat Language Detection on English Wikipedia
+fontsize: 10pt
 ---
 
 ```{r setup, include = FALSE, message = FALSE, warning = FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+options(digits = 3)
+library(magrittr)
+library(tidyr)
+import::from(dplyr, keep_where = filter, group_by, ungroup, summarize, select, rename, mutate, arrange, top_n, distinct, left_join, tally)
+library(ggplot2)
+library(cowplot)
+library(BCDA)
+import::from(BCDA, flip_cols)
+import::from(BCDA, flip_rows)
+```
+
+```{r extra_eda_functions}
+prop_df <- function(x, margin) {
+  if (all(margin == 1:2)) {
+    return(x/sum(x))
+  }
+  return(t(apply(x, margin, function(y) {
+    return(y/sum(y))
+  })))
+}
+add_props <- function(x, margin = NULL) {
+  if (is.data.frame(x)) {
+    y <- prop_df(x, margin)
+  } else if (is.table(x) || is.array(x)) {
+    y <- prop.table(x, margin)
+  }
+  z <- x
+  for (i in 1:nrow(x)) {
+    for (j in 1:ncol(x)) {
+      z[i, j] <- sprintf("%.0f (%.2f%%)", x[i, j], 100 * y[i, j])
+    }
+  }
+  return(z)
+}
+to_ordinal <- function(x) {
+  return(vapply(x, toOrdinal::toOrdinal, ""))
+}
 ```
 
 \renewcommand{\abstractname}{Executive Summary}
 \begin{abstract}
-...
+Our current efforts to increase relevancy of search results rely on language detection (via the TextCat library) to provide the user with results from a potentially more relevant alternate language. That is, users who were enrolled in the test group and searched English Wikipedia (``enwiki") in French received additional ``interwiki" results from French Wikipedia.
+
+The test groups not only had a substantially lower zero results rate (58\% in control group vs 43-45\% in the two test groups), but they had a higher clickthrough rate (44\% in the control group vs 49-50\% in the two test groups), indicating that we may be providing users with relevant results that they would not have gotten otherwise. Interestingly, users first clicked on the first and second search results from enwiki, rather than the potentially more relevant interwiki results.
+
+We recommendation is to proceed with the test on other Wikipedias, but to also record the confidence of the language detection. We suspect there may be a correlation between the confidence -- a proxy for the potential relevancy of the results -- and the likelihood that the user will click on the interwiki result(s).
 \end{abstract}
+
+## Introduction
+
+In our investigation of search queries, we have found that sometimes people write search queries in a language different from the language of the wiki they are searching. Sometimes this works (some articles may have translations on the page) and sometimes it does not. So we asked ourselves, "What if we could detect the language of the query and then if the user did not get many -- if any -- results on their current wiki, what if just searched the potentially correct wiki and gave the user THOSE results?" To that end, we decided to proceed with adding language detection to Cirrus search (see [T118278](https://phabricator.wikimedia.org/T118278)).
+
+[TextCat](https://www.mediawiki.org/wiki/TextCat) is a software library for detecting language based on [n-gram text categorization](https://en.wikipedia.org/wiki/N-gram), which we ported to PHP for use in Cirrus search. In this initial A/B test of the TextCat software, we deployed the code to English Wikipedia ("enwiki") to determine how people engage with the "interwiki" results (results from a Wikipedia in another language).
+
+## Methods
+
+Users who received less than 3 enwiki results and whose language we were able to detect (using either TextCat or combination of TextCat and Accept-Language header) received interwiki results. Our [initial attempt](https://phabricator.wikimedia.org/T121542) ran from 16 March 2016 to 31 May 2016, but a few issues with the data (see [T137158#2359494](https://phabricator.wikimedia.org/T137158#2359494)) meant that we had to resolve them and then restart the test. The [second attempt](https://phabricator.wikimedia.org/T137163) ran from 16 June 2016 to 05 July 2016. A total of 49,623 sessions (users) and 116,462 searches were recorded using the MediaWiki Event Logging system. The data analysis was performed using [R](https://www.r-project.org/) in [RStudio](https://www.rstudio.com/) and the packages: magrittr, uaparser, dplyr, tidyr, and [BCDA](https://github.com/bearloga/BCDA).
+
+## Results
+
+```{r data}
+load("data/textcat-enwiki-abtest-refined.RData")
+```
+
+In Table 1, we see that the proportion of sessions (which perform multiple searches) for which we could detect a language is nearly double the proportion of sessions for which we could not. Nearly the opposite holds for proportion of individual searches.
+
+```{r eda_langdetect}
+searches %>%
+  keep_where(session_id %in% valid_session_ids) %>%
+  group_by(`Detected a language` = ifelse(detected_language, "Detected", "Did not detect")) %>%
+  summarize(searches = length(unique(page_id)), sessions = length(unique(session_id))) %>%
+  mutate(`searches (proportion)` = searches/sum(searches), `sessions (proportion)` = sessions/sum(sessions)) %>%
+  select(`Detected a language`, searches, `searches (proportion)`, sessions, `sessions (proportion)`) %>%
+  knitr::kable(caption = "Number of sessions and individual searches within them where we detected or did not detect a language.")
+```
+
+While the zero results rate is not the key metric of interest to us in this particular test, we still want to make sure that we are seeing the numbers we might expect. In Table 2, we can see that groups who received the additional interwiki results had a substantially lower zero results rate, which makes sense.
+
+```{r eda_zrr}
+results <- searches %>%
+  keep_where(detected_language) %>%
+  group_by(group = test_group, results = ifelse(results_returned == 0, "zero results", "some results")) %>%
+  tally() %>%
+  spread(results, n) %>%
+  # mutate(`zero results rate` = `zero results`/(`zero results` + `some results`)) %>%
+  ungroup
+results[, 2:3] <- add_props(results[, 2:3], 1)
+knitr::kable(results[, c(1, 3, 2)], caption = "Searches where we could detect a language had a much lower zero results rate when using interwiki results via TextCat and Accept-Language header language detection.")
+```
+
+In the clickthrough analyses that follow, we only use sessions for which we detected a language and which had some search results.
+
+```{r eda_group_counts, results = 'asis'}
+events %>%
+  keep_where(session_id %in% valid_session_ids) %>%
+  distinct(test_group, session_id) %>%
+  group_by(`Group` = test_group) %>%
+  summarize(Sessions = n()) %>%
+  knitr::kable(caption = "Number of sessions (for which we detected a language in one of the search queries) per group.")
+```
+
+```{r eda_ctr_by_group_enwiki_only, results = 'asis'}
+sessions %>%
+  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked an enwiki result", "Did not")) %>%
+  group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
+           any_enwiki_clicks) %>%
+  tally() %>%
+  xtabs(n ~ group + any_enwiki_clicks, data = .) %>%
+  prop.table(margin = 1) %>%
+  knitr::kable(caption = "Proportion of sessions that clicked specifically on an English Wikipedia result vs proportion that did not click on any result. The two test groups ('b' and 'c') have been combined into a single group.")
+```
+
+```{r cda_ctr_by_group_enwiki_only, results = 'asis'}
+set.seed(0)
+test_1 <- sessions %>%
+  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked an enwiki result", "Did not")) %>%
+  group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
+           any_enwiki_clicks) %>%
+  tally() %>%
+  xtabs(n ~ group + any_enwiki_clicks, data = .) %>%
+  flip_rows() %>%
+  beta_binom
+```
+
+```{r eda_ctr_by_group_combined, results = 'asis'}
+sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
+           clickthrough) %>%
+  tally() %>%
+  xtabs(n ~ group + clickthrough, data = .) %>%
+  prop.table(margin = 1) %>%
+  knitr::kable(caption = "Proportions of clicks on results (enwiki and interwiki). The two test groups ('b' and 'c') have been combined into a single group.")
+```
+
+```{r cda_ctr_by_group_combined, results = 'asis'}
+test_2 <- sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
+           clickthrough) %>%
+  tally() %>%
+  xtabs(n ~ group + clickthrough, data = .) %>%
+  flip_rows() %>%
+  beta_binom
+```
+
+```{r eda_ctr_by_group, results = 'asis'}
+sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(group = test_group, clickthrough) %>%
+  tally() %>%
+  xtabs(n ~ group + clickthrough, data = .) %>%
+  prop.table(margin = 1) %>%
+  knitr::kable(caption = "Proportion of sessions that clicked on a result vs that did not click on any result. For the groups 'b' and 'c', these clickthrough rates account for both types of results that could be clicked -- enwiki and interwiki.")
+```
+
+```{r cda_ctr_by_group}
+temp <- sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(group = test_group, clickthrough) %>%
+  tally() %>%
+  xtabs(n ~ group + clickthrough, data = .)
+test_3 <- beta_binom(temp[c(2, 1), ]) # B vs A
+test_4 <- beta_binom(temp[c(3, 1), ]) # C vs A
+test_5 <- beta_binom(temp[c(2, 3), ]) # B vs C
+rm(temp)
+```
+
+```{r eda_results}
+# nrow(keep_where(searches, detected_language, test_group != "a (control)", clickthrough)) # 654
+searches %>%
+  keep_where(detected_language, test_group != "a (control)", clickthrough) %>%
+  group_by(interwiki = ifelse(zero_interwiki_results, "zero interwiki results", "some interwiki results"),
+           enwiki = ifelse(zero_enwiki_results, "zero enwiki results", "some enwiki results")) %>%
+  tally() %>%
+  xtabs(n ~ interwiki + enwiki, data = .) %>%
+  add_props %>%
+  knitr::kable(caption = "Counts and proportions of searches with some or no enwiki and interwiki results where we detected a language and the user clicked on a result.")
+```
+
+An interesting thing to note is that of the 654 searches made by the two test groups 'b' and 'c' that had (1) had a language detected, and (2) a clickthrough: only 28.13% (184) searches had both interwiki and enwiki results. We were curious how those users engaged with their mixed results, so we looked into and found that users almost overwhelmingly initially clicked on the 1-2 enwiki results that show up first, rather than the interwiki results shown underneath the enwiki ones. This is not a particularly new finding, as we have known and seen for a while that a vast majority of users just click on the first couple results. This is interesting because it introduces two interesting possibilities: either the interwiki results are not as relevant as we hope them to be, or users just click on the first or second result even if the results underneath are actually, objectively more relevant because they were fetched from the Wikipedia of the query's language.
+
+```{r eda_first_ctr}
+results <- searches %>%
+  keep_where(detected_language, test_group != "a (control)") %>%
+  keep_where(!zero_interwiki_results & !zero_enwiki_results, clickthrough) %>%
+  mutate(`enwiki results` = results_returned - new_results_returned) %>%
+  group_by(`enwiki results`, first_click_position, `first clicked on` = ifelse(first_click_is_interwiki, "an interwiki result", "an enwiki result")) %>%
+  tally() %>%
+  ungroup %>%
+  mutate(first_click_position = ifelse(first_click_position <= 3, first_click_position, 4)) %>%
+  group_by(`enwiki results`, `first clicked on`, first_click_position) %>%
+  summarize(n = sum(n)) %>%
+  mutate(first_click_position = paste(to_ordinal(first_click_position) , 'result')) %>%
+  spread(first_click_position, n, fill = 0) %>%
+  ungroup %>%
+  {
+    names(.) <- sub("4th result", "4th result or lower", names(.))
+    .
+  }
+results[, -(1:2)] <- add_props(results[, -(1:2)], 1:2)
+knitr::kable(results, caption = "Do people just click on the first link even if the better result is the interwiki result that's lower in the list? Seems like it.")
+```
+
+## Conclusion
+
+This initial evidence suggests that using TextCat to detect language and present the users with additional results from the Wikipedia in the detected language has a benefit for the users. We suggest proceeding with a follow-up test, but to also record the confidence of the language detection. That is, perhaps the number of searches where the user clicked on an interwiki result first rather than current wiki is high for searches where we have a very high confidence ("Oh yeah, that's definitely the language they are searching in but just are on the wrong wiki.") of correctly detecting the user's language, compared to those searches where our detection can be best described as, "Well, I guess this could be the language they were trying to search in."
+
+\newpage
+
+\newgeometry{left = 0.5in, bottom = 0.5in}
+
+\begin{landscape}
+
+```{r bcda_compilation, include = FALSE}
+present_bbfit(list("Clicked on an enwiki result" = test_1,
+                   "Clicked on a result (controls vs test)" = test_2,
+                   "Clicked on a result (b vs a)" = test_3,
+                   "Clicked on a result (c vs a)" = test_4,
+                   "Clicked on a result (b vs c)" = test_5),
+              digits = 2)
+```
+
+\begin{table}
+\caption{The results of a Bayesian analysis using the Beta-Binomial model of clickthrough rates by group. The test group(s) were more likely to clickthrough on a result than the controls (who did not receive interwiki results).}
+\centering
+\renewcommand{\arraystretch}{1.8}% for the vertical padding
+\begin{tabular}[t]{l|r|r|l|l|l|l|l}
+\hline
+\textbf{Outcome} & $N_\text{1}$ & $N_\text{2}$ & $P_\text{1}$ & $P_\text{2}$ & \textbf{Difference} ($P_\text{1} - P_\text{2}$) & \textbf{Relative Risk} & \textbf{Odds Ratio}\\
+\hline
+Clicked on an enwiki result & 2069 & 531 & 44.90\% (42.74\%, 47.06\%) & 44.10\% (39.93\%, 48.31\%) & 0.81\% (-3.95\%, 5.45\%) & 1.02 (0.92, 1.14) & 1.04 (0.85, 1.25)\\
+\hline
+\rowcolor{LightYellow}
+Clicked on a result ('test' vs 'controls') & 2069 & 531 & 49.63\% (47.46\%, 51.76\%) & 44.06\% (39.78\%, 48.38\%) & 5.57\% (0.72\%, 10.30\%) & 1.13 (1.01, 1.26) & 1.26 (1.03, 1.52)\\
+\hline
+\rowcolor{LightYellow}
+Clicked on a result ('b' vs 'a') & 993 & 531 & 49.74\% (46.66\%, 52.71\%) & 44.09\% (39.83\%, 48.31\%) & 5.65\% (0.46\%, 10.90\%) & 1.13 (1.01, 1.27) & 1.26 (1.02, 1.55)\\
+\hline
+\rowcolor{LightYellow}
+Clicked on a result ('c' vs 'a') & 1076 & 531 & 49.53\% (46.53\%, 52.52\%) & 44.07\% (39.87\%, 48.28\%) & 5.46\% (0.21\%, 10.58\%) & 1.13 (1.00, 1.26) & 1.25 (1.01, 1.53)\\
+\hline
+Clicked on a result ('b' vs 'c') & 993 & 1076 & 49.78\% (46.66\%, 52.82\%) & 49.51\% (46.47\%, 52.48\%) & 0.26\% (-4.01\%, 4.60\%) & 1.01 (0.92, 1.10) & 1.01 (0.85, 1.20)\\
+\hline
+\end{tabular}
+\end{table}
+
+\end{landscape}

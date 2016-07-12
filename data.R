@@ -1,5 +1,5 @@
 start_date <- as.Date("2016-06-16")
-end_date <- Sys.Date() # Sys.Date()-1
+end_date <- Sys.Date() - 1
 cat("Fetching EL data from", as.character(start_date), "to", as.character(end_date), "...\n")
 events <- do.call(rbind, lapply(seq(start_date, end_date, "day"), function(date) {
   cat("Fetching EL data from", as.character(date), "\n")
@@ -38,6 +38,7 @@ events$additional_data[events$additional_data == ",,"] <- NA
 # Remove known spiders from the dataset (usually <10, but still):
 devices <- uaparser::parse_agents(events$user_agent, "device")
 spider_session_ids <- unique(events$session_id[devices == "Spider"])
+length(spider_session_ids) # 7
 events <- events[!(events$session_id %in% spider_session_ids), ]
 rm(devices, spider_session_ids)
 events$user_agent <- NULL
@@ -65,6 +66,8 @@ events$detected_language <- !is.na(events$language_detected)
 
 events <- dplyr::arrange(events, date, ts, session_id, mediawiki_id, test_group,
                          page_id, desc(action), ts)
+
+events$time_to_display[events$time_to_display < 0] <- NA
 
 readr::write_rds(events, "~/textcat-enwiki-abtest.rds", "gz")
 
