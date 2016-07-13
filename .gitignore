@@ -22,3 +22,5 @@ vignettes/*.pdf
 *.rds
 
 *.RData
+
+*.gz

@@ -2,7 +2,7 @@ library(magrittr)
 library(tidyr)
 import::from(dplyr, keep_where = filter, group_by, ungroup, summarize, select, rename, mutate, arrange, top_n, distinct, left_join)
 
-events <- dplyr::tbl_df(readr::read_rds("data/textcat-enwiki-abtest.rds")) %>% keep_where(session_id != "")
+events <- dplyr::tbl_df(readr::read_rds("data/textcat-enwiki-abtest-expanded.rds")) %>% keep_where(session_id != "")
 
 valid_page_ids <- events %>%
   group_by(session_id, page_id) %>%
@@ -66,6 +66,7 @@ searches <- events %>%
   arrange(desc(action), ts) %>%
   summarize(
     test_group = test_group[1],
+    wiki = wiki[1],
     n_clicks = sum(action == "click", na.rm = TRUE),
     clickthrough = n_clicks > 0,
     any_enwiki_clicks = any_clicks(action, interwiki_click, enwiki_only = TRUE),
@@ -104,11 +105,30 @@ sessions <- searches %>%
   keep_where(session_id %in% valid_session_ids) %>%
   group_by(session_id) %>%
   summarize(test_group = head(test_group, 1),
+            wiki = head(wiki, 1),
             SERPs = length(unique(page_id)),
             clickthrough = any(clickthrough),
             any_enwiki_clicks = any(any_enwiki_clicks),
             any_interwiki_clicks = any(any_interwiki_clicks))
 
 save(list = c("events", "searches", "valid_session_ids", "sessions"),
-     file = "data/textcat-enwiki-abtest-refined.RData",
+     file = "data/textcat-enwiki-abtest-extended-refined.RData",
      compress = "gzip")
+
+queries <- events %>%
+  keep_where(page_id %in% valid_page_ids) %>%
+  group_by(session_id, page_id) %>%
+  arrange(desc(action), ts) %>%
+  summarize(wiki_searched_original = wiki[1],
+            wiki_searched_additional = wiki_searched[1],
+            group = test_group[1], query = query[1],
+            detected_language = detected_language[1],
+            language_detected = language_detected[1],
+            n_clicks = sum(action == "click", na.rm = TRUE),
+            clickthrough = n_clicks > 0,
+            interwiki_clickthrough = any_clicks(action, interwiki_click, enwiki_only = FALSE),
+            combined_results_returned = results_returned[1],
+            interwiki_results_returned = new_results_returned[1])
+readr::write_tsv(queries, "data/textcat_queries_for_tjones.tsv")
+system("gzip -f data/textcat_queries_for_tjones.tsv")
+system("scp data/textcat_queries_for_tjones.tsv.gz stat2:/home/bearloga/")

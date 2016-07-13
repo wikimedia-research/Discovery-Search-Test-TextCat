@@ -1,5 +1,5 @@
 start_date <- as.Date("2016-06-16")
-end_date <- Sys.Date() - 1
+end_date <- as.Date("2016-07-12")
 cat("Fetching EL data from", as.character(start_date), "to", as.character(end_date), "...\n")
 events <- do.call(rbind, lapply(seq(start_date, end_date, "day"), function(date) {
   cat("Fetching EL data from", as.character(date), "\n")
@@ -7,6 +7,7 @@ events <- do.call(rbind, lapply(seq(start_date, end_date, "day"), function(date)
                               event_uniqueId AS event_id,
                               timestamp AS ts,
                               userAgent AS user_agent,
+                              wiki,
                               event_searchSessionId AS session_id,
                               event_mwSessionId AS mediawiki_id,
                               event_subTest AS test_group,
@@ -22,7 +23,7 @@ events <- do.call(rbind, lapply(seq(start_date, end_date, "day"), function(date)
                            table = "TestSearchSatisfaction2_15700292",
                            conditionals = "(LEFT(event_subTest, 7) = 'textcat')
                              AND ((event_action = 'click' AND event_position IS NOT NULL) OR (event_action = 'searchResultPage' AND event_hitsReturned IS NOT NULL))
-                             AND event_source = 'fulltext' AND wiki = 'enwiki'")
+                             AND event_source = 'fulltext'")
   return(data)
 }))
 events <- events[!duplicated(events$event_id, fromLast = FALSE), ]; events$event_id <- NULL
@@ -69,7 +70,7 @@ events <- dplyr::arrange(events, date, ts, session_id, mediawiki_id, test_group,
 
 events$time_to_display[events$time_to_display < 0] <- NA
 
-readr::write_rds(events, "~/textcat-enwiki-abtest.rds", "gz")
+readr::write_rds(events, "~/textcat-enwiki-abtest-expanded.rds", "gz")
 
 dir.create("data")
-system("scp stat2:/home/bearloga/textcat-enwiki-abtest.rds data/")
+system("scp stat2:/home/bearloga/textcat-enwiki-abtest-expanded.rds data/")

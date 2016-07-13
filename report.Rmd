@@ -8,7 +8,7 @@ author:
 - Stas Malyshev (Engineering)
 - Dan Garry (Product Management)
 - Deborah Tankersley (Product Management)
-date: "July 12, 2016"
+date: "July 13, 2016"
 output:
   pdf_document:
     fig_caption: yes
@@ -69,7 +69,7 @@ to_ordinal <- function(x) {
 \large
 Our current efforts to increase relevancy of search results rely on language detection (via the TextCat library) to provide the user with results from a potentially more relevant alternate language. For example, users who were enrolled in the test group and searched English Wikipedia in French received additional ``interwiki" results from French Wikipedia.
 
-The test groups not only had a substantially lower zero results rate (58\% in control group vs 43-45\% in the two test groups), but they had a higher clickthrough rate (44\% in the control group vs 49-50\% in the two test groups), indicating that we may be providing users with relevant results that they would not have gotten otherwise. Interestingly, users first clicked on the first and second search results from same-language wiki, rather than the potentially more relevant interwiki results.
+The test groups not only had a substantially lower zero results rate (57\% in control group vs 46\% in the two test groups), but they had a higher clickthrough rate (44\% in the control group vs 49-50\% in the two test groups), indicating that we may be providing users with relevant results that they would not have gotten otherwise. Interestingly, users first clicked on the first and second search results from same-language wiki, rather than the potentially more relevant interwiki results.
 
 We recommend continuing our work with TextCat and possibly deploying it to production. We should consider recording the confidence of the language detection, as there may be a correlation between the confidence -- a proxy for the potential relevancy of the results -- and the likelihood that the user will click on the interwiki result(s).
 \end{abstract}
@@ -93,7 +93,7 @@ Test group users who received less than 3 same-wiki results and whose language w
 ## Results
 
 ```{r data}
-load("data/textcat-enwiki-abtest-refined.RData")
+load("data/textcat-enwiki-abtest-extended-refined.RData")
 ```
 
 In Table 1, we see that the proportion of sessions (which perform multiple searches) for which we could detect a language is nearly double the proportion of sessions for which we could not. Nearly the opposite holds for proportion of individual searches.
@@ -101,10 +101,10 @@ In Table 1, we see that the proportion of sessions (which perform multiple searc
 ```{r eda_langdetect}
 searches %>%
   keep_where(session_id %in% valid_session_ids) %>%
-  group_by(`Detected a language` = ifelse(detected_language, "Detected", "Did not detect")) %>%
+  group_by(wiki, `Detected a language` = ifelse(detected_language, "Detected", "Did not detect")) %>%
   summarize(searches = length(unique(page_id)), sessions = length(unique(session_id))) %>%
   mutate(`searches (proportion)` = searches/sum(searches), `sessions (proportion)` = sessions/sum(sessions)) %>%
-  select(`Detected a language`, searches, `searches (proportion)`, sessions, `sessions (proportion)`) %>%
+  select(wiki, `Detected a language`, searches, `searches (proportion)`, sessions, `sessions (proportion)`) %>%
   knitr::kable(caption = "Number of sessions and individual searches within them where we detected or did not detect a language.")
 ```
 
@@ -125,23 +125,34 @@ knitr::kable(results[, c(1, 3, 2)], caption = "Searches where we could detect a 
 In the clickthrough analyses that follow, we only use sessions for which we detected a language and which had some search results.
 
 ```{r eda_group_counts, results = 'asis'}
-events %>%
+results <- events %>%
   keep_where(session_id %in% valid_session_ids) %>%
-  distinct(test_group, session_id) %>%
-  group_by(`Group` = test_group) %>%
-  summarize(Sessions = n()) %>%
-  knitr::kable(caption = "Number of sessions (for which we detected a language in one of the search queries) per group.")
+  distinct(wiki, test_group, session_id) %>%
+  group_by(wiki, test_group) %>%
+  tally() %>%
+  spread(test_group, n)
+results[, 2:4] <- add_props(results[, 2:4], 1)
+knitr::kable(results, caption = "Number of sessions (for which we detected a language in one of the search queries) per group per wiki.")
 ```
 
 ```{r eda_ctr_by_group_samewiki_only, results = 'asis'}
-sessions %>%
+results_1 <- sessions %>%
+  mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked a same-wiki result", "Did not")) %>%
+  group_by(wiki, group = ifelse(test_group == "a (control)", "controls", "test"),
+           any_enwiki_clicks) %>%
+  tally() %>%
+  spread(any_enwiki_clicks, n) %>%
+  mutate(ctr = `Clicked a same-wiki result`/(`Clicked a same-wiki result` + `Did not`)) %>%
+  xtabs(ctr ~ group + wiki, data = .)
+results_2 <- sessions %>%
   mutate(any_enwiki_clicks = ifelse(any_enwiki_clicks, "Clicked a same-wiki result", "Did not")) %>%
   group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
            any_enwiki_clicks) %>%
   tally() %>%
-  xtabs(n ~ group + any_enwiki_clicks, data = .) %>%
-  prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportion of sessions that clicked specifically on an En/Fr/Es/It/De Wikipedia result (respectively) vs proportion that did not click on any result. The two test groups ('b' and 'c') have been combined into a single group.")
+  spread(any_enwiki_clicks, n) %>%
+  mutate(ctr = `Clicked a same-wiki result`/(`Clicked a same-wiki result` + `Did not`)) %>%
+  xtabs(ctr ~ group, data = .)
+knitr::kable(cbind(results_1, overall = results_2), caption = "Proportion of sessions that clicked specifically on a 'same-language' (En/Fr/Es/It/De) Wikipedia result. The two test groups ('b' and 'c') have been combined into a single group.")
 ```
 
 ```{r cda_ctr_by_group_samewiki_only, results = 'asis'}
@@ -157,14 +168,23 @@ test_1 <- sessions %>%
 ```
 
 ```{r eda_ctr_by_group_combined, results = 'asis'}
-sessions %>%
+results_1 <- sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(wiki, group = ifelse(test_group == "a (control)", "controls", "test"),
+           clickthrough) %>%
+  tally() %>%
+  spread(clickthrough, n) %>%
+  mutate(ctr = `Clicked a result`/(`Clicked a result` + `Did not`)) %>%
+  xtabs(ctr ~ group + wiki, data = .)
+results_2 <- sessions %>%
   mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
   group_by(group = ifelse(test_group == "a (control)", "controls", "test"),
            clickthrough) %>%
   tally() %>%
-  xtabs(n ~ group + clickthrough, data = .) %>%
-  prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportions of clicks on results (same-wiki and interwiki). The two test groups ('b' and 'c') have been combined into a single group.")
+  spread(clickthrough, n) %>%
+  mutate(ctr = `Clicked a result`/(`Clicked a result` + `Did not`)) %>%
+  xtabs(ctr ~ group, data = .)
+knitr::kable(cbind(results_1, overall = results_2), caption = "Clickthrough rates across the five Wikipedias. The two test groups ('b' and 'c') have been combined into a single 'test' group.")
 ```
 
 ```{r cda_ctr_by_group_combined, results = 'asis'}
@@ -179,13 +199,21 @@ test_2 <- sessions %>%
 ```
 
 ```{r eda_ctr_by_group, results = 'asis'}
-sessions %>%
+results_1 <- sessions %>%
+  mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
+  group_by(wiki, group = test_group, clickthrough) %>%
+  tally() %>%
+  spread(clickthrough, n) %>%
+  mutate(ctr = `Clicked a result`/(`Clicked a result` + `Did not`)) %>%
+  xtabs(ctr ~ group + wiki, data = .)
+results_2 <- sessions %>%
   mutate(clickthrough = ifelse(clickthrough, "Clicked a result", "Did not")) %>%
   group_by(group = test_group, clickthrough) %>%
   tally() %>%
-  xtabs(n ~ group + clickthrough, data = .) %>%
-  prop.table(margin = 1) %>%
-  knitr::kable(caption = "Proportion of sessions that clicked on a result vs that did not click on any result. For the groups 'b' and 'c', these clickthrough rates account for both types of results that could be clicked -- same-wiki and interwiki.")
+  spread(clickthrough, n) %>%
+  mutate(ctr = `Clicked a result`/(`Clicked a result` + `Did not`)) %>%
+  xtabs(ctr ~ group, data = .)
+  knitr::kable(cbind(results_1, overall = results_2), caption = "Clickthrough rates across the five Wikipedias. For the groups 'b' and 'c', these clickthrough rates account for both types of results that could be clicked -- same-wiki and interwiki.")
 ```
 
 ```{r cda_ctr_by_group}
@@ -201,7 +229,7 @@ rm(temp)
 ```
 
 ```{r eda_results}
-# nrow(keep_where(searches, detected_language, test_group != "a (control)", clickthrough)) # 654
+# nrow(keep_where(searches, detected_language, test_group != "a (control)", clickthrough)) # 1647
 searches %>%
   keep_where(detected_language, test_group != "a (control)", clickthrough) %>%
   group_by(interwiki = ifelse(zero_interwiki_results, "zero interwiki results", "some interwiki results"),
@@ -212,33 +240,9 @@ searches %>%
   knitr::kable(caption = "Counts and proportions of searches with some or no En/Fr/Es/It/De Wikipedia results and some or no interwiki results where we detected a language and the user clicked on a result.")
 ```
 
-An interesting thing to note is that of the 654 searches made by the two test groups 'b' and 'c' that had (1) had a language detected, and (2) a clickthrough: only 28.13% (184) searches had both interwiki and same-wiki results. We were curious how those users engaged with their mixed results, so we looked into and found that users almost overwhelmingly initially clicked on the 1-2 same-wiki results that show up first, rather than the interwiki results shown underneath the same-wiki ones. This is not a particularly new finding, as we have known and seen for a while that a vast majority of users just click on the first couple results. This is interesting because it introduces two interesting possibilities: either the interwiki results are not as relevant as we hope them to be, or users just click on the first or second result even if the results underneath are actually, objectively more relevant because they were fetched from the Wikipedia of the query's language.
-
-```{r eda_first_ctr}
-results <- searches %>%
-  keep_where(detected_language, test_group != "a (control)") %>%
-  keep_where(!zero_interwiki_results & !zero_enwiki_results, clickthrough) %>%
-  mutate(`same-wiki results` = results_returned - new_results_returned) %>%
-  group_by(`same-wiki results`, first_click_position, `first clicked on` = ifelse(first_click_is_interwiki, "an interwiki result", "a same-wiki result")) %>%
-  tally() %>%
-  ungroup %>%
-  mutate(first_click_position = ifelse(first_click_position <= 3, first_click_position, 4)) %>%
-  group_by(`same-wiki results`, `first clicked on`, first_click_position) %>%
-  summarize(n = sum(n)) %>%
-  mutate(first_click_position = paste(to_ordinal(first_click_position) , 'result')) %>%
-  spread(first_click_position, n, fill = 0) %>%
-  ungroup %>%
-  {
-    names(.) <- sub("4th result", "4th result or lower", names(.))
-    .
-  }
-results[, -(1:2)] <- add_props(results[, -(1:2)], 1:2)
-knitr::kable(results, caption = "Counts of clickthroughs by number of same-wiki results shown, type of result clicked first, and the position of the result (1st, 2nd, 3rd, 4th or lower). The positions are independent, although the 1st interwiki result is the 2nd result shown on the page (in case of 1 same-language wiki result) or 3rd result (in case of 2 same-language wiki results). There are two technical anomalies that have a '4th result or lower' as a same-wiki result, but the maximum position that a same-wiki result can have is technically '2nd'.")
-```
-
 ## Conclusion
 
-This initial evidence suggests that using TextCat to detect language and present the users with additional results from the Wikipedia in the detected language has a benefit for the users. We suggest proceeding with a follow-up test, but to also record the confidence of the language detection. That is, perhaps the number of searches where the user clicked on an interwiki result first rather than current wiki is high for searches where we have a very high confidence ("Oh yeah, that's definitely the language they are searching in but just are on the wrong wiki.") of correctly detecting the user's language, compared to those searches where our detection can be best described as, "Well, I guess this could be the language they were trying to search in."
+This initial evidence suggests that using TextCat to detect language and present the users with additional results from the Wikipedia in the detected language has a benefit for the users. We suggest recording the confidence of the language detection. That is, perhaps the number of searches where the user clicked on an interwiki result first rather than current wiki is high for searches where we have a very high confidence ("Oh yeah, that's definitely the language they are searching in but just are on the wrong wiki.") of correctly detecting the user's language, compared to those searches where our detection can be best described as, "Well, I guess this could be the language they were trying to search in." Trey Jones [began working on this](https://www.mediawiki.org/wiki/User:TJones_(WMF)/Notes/TextCat_and_Confidence).
 
 \newpage
 
@@ -248,11 +252,11 @@ This initial evidence suggests that using TextCat to detect language and present
 
 ```{r bcda_compilation, include = FALSE}
 present_bbfit(list("Clicked on a same-wiki result" = test_1,
-                   "Clicked on a result (controls vs test)" = test_2,
-                   "Clicked on a result (b vs a)" = test_3,
-                   "Clicked on a result (c vs a)" = test_4,
-                   "Clicked on a result (b vs c)" = test_5),
-              digits = 2)
+                   "Clicked on a result ('test' vs 'controls')" = test_2,
+                   "Clicked on a result ('b' vs 'a')" = test_3,
+                   "Clicked on a result ('c' vs 'a')" = test_4,
+                   "Clicked on a result ('b' vs 'c')" = test_5),
+              digits = 2, format = "latex")
 ```
 
 \begin{table}
@@ -263,18 +267,18 @@ present_bbfit(list("Clicked on a same-wiki result" = test_1,
 \hline
 \textbf{Outcome} & $N_\text{1}$ & $N_\text{2}$ & $P_\text{1}$ & $P_\text{2}$ & \textbf{Difference} ($P_\text{1} - P_\text{2}$) & \textbf{Relative Risk} & \textbf{Odds Ratio}\\
 \hline
-Clicked on a same-wiki result & 2069 & 531 & 44.90\% (42.74\%, 47.06\%) & 44.10\% (39.93\%, 48.31\%) & 0.81\% (-3.95\%, 5.45\%) & 1.02 (0.92, 1.14) & 1.04 (0.85, 1.25)\\
+Clicked on a same-wiki result & 5065 & 1263 & 42.67\% (41.30\%, 44.04\%) & 44.43\% (41.73\%, 47.17\%) & -1.77\% (-4.86\%, 1.28\%) & 0.96 (0.90, 1.03) & 0.93 (0.82, 1.05)\\
 \hline
 \rowcolor{LightYellow}
-Clicked on a result ('test' vs 'controls') & 2069 & 531 & 49.63\% (47.46\%, 51.76\%) & 44.06\% (39.78\%, 48.38\%) & 5.57\% (0.72\%, 10.30\%) & 1.13 (1.01, 1.26) & 1.26 (1.03, 1.52)\\
+Clicked on a result ('test' vs 'controls') & 5065 & 1263 & 48.88\% (47.49\%, 50.24\%) & 44.41\% (41.63\%, 47.21\%) & 4.47\% (1.36\%, 7.55\%) & 1.10 (1.03, 1.18) & 1.20 (1.06, 1.36)\\
 \hline
 \rowcolor{LightYellow}
-Clicked on a result ('b' vs 'a') & 993 & 531 & 49.74\% (46.66\%, 52.71\%) & 44.09\% (39.83\%, 48.31\%) & 5.65\% (0.46\%, 10.90\%) & 1.13 (1.01, 1.27) & 1.26 (1.02, 1.55)\\
+Clicked on a result ('b' vs 'a') & 2334 & 1263 & 48.71\% (46.70\%, 50.65\%) & 44.43\% (41.66\%, 47.19\%) & 4.28\% (0.91\%, 7.61\%) & 1.10 (1.02, 1.18) & 1.19 (1.04, 1.36)\\
 \hline
 \rowcolor{LightYellow}
-Clicked on a result ('c' vs 'a') & 1076 & 531 & 49.53\% (46.53\%, 52.52\%) & 44.07\% (39.87\%, 48.28\%) & 5.46\% (0.21\%, 10.58\%) & 1.13 (1.00, 1.26) & 1.25 (1.01, 1.53)\\
+Clicked on a result ('c' vs 'a') & 2731 & 1263 & 49.02\% (47.14\%, 50.90\%) & 44.42\% (41.68\%, 47.14\%) & 4.61\% (1.29\%, 7.87\%) & 1.10 (1.03, 1.19) & 1.21 (1.05, 1.37)\\
 \hline
-Clicked on a result ('b' vs 'c') & 993 & 1076 & 49.78\% (46.66\%, 52.82\%) & 49.51\% (46.47\%, 52.48\%) & 0.26\% (-4.01\%, 4.60\%) & 1.01 (0.92, 1.10) & 1.01 (0.85, 1.20)\\
+Clicked on a result ('b' vs 'c') & 2334 & 2731 & 48.73\% (46.70\%, 50.72\%) & 49.02\% (47.11\%, 50.88\%) & -0.28\% (-3.04\%, 2.43\%) & 0.99 (0.94, 1.05) & 0.99 (0.89, 1.10)\\
 \hline
 \end{tabular}
 \end{table}
