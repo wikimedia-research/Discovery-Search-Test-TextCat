@@ -1,5 +1,5 @@
 ---
-title: "Report on Cirrus Search A/B Test"
+title: "Report on Cirrus Search TextCat A/B Test"
 author:
 - Mikhail Popov (Analysis & Report)
 - Trey Jones (Engineering & Review)
@@ -19,7 +19,7 @@ output:
     latex_engine: xelatex
   html_document: default
 geometry: margin=1in
-subtitle: TextCat Language Detection on English Wikipedia
+subtitle: Language Detection on English, French, Spanish, Italian, and German Wikipedias
 fontsize: 10pt
 ---
 
