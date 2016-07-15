@@ -80,7 +80,7 @@ We recommend continuing our work with TextCat and possibly deploying it to produ
 
 ## Introduction
 
-In our investigation of search queries, we have found that sometimes people write search queries in a language different from the language of the wiki they are searching. Sometimes this works (some articles may have translations on the page) and sometimes it does not. So we asked ourselves, "What if we could detect the language of the query and then if the user did not get many -- if any -- results on their current wiki, what if just searched the potentially correct wiki and gave the user THOSE results?" To that end, we decided to proceed with adding language detection to Cirrus search (see [T118278](https://phabricator.wikimedia.org/T118278)).
+In our investigation of search queries, we have found that sometimes people write search queries in a language different from the language of the wiki they are searching. Sometimes this works (some articles may have translations on the page) and sometimes it does not. So we asked ourselves, "What if we could detect the language of the query and then if the user did not get many -- if any -- results on their current wiki, what if we just searched the potentially correct wiki and gave the user THOSE results?" To that end, we decided to proceed with adding language detection to Cirrus search (see [T118278](https://phabricator.wikimedia.org/T118278)).
 
 ![A screenshot showing what happens when a user searches English Wikipedia using a query written in Russian.](Screen Shot 2016-07-12 at 4.47.25 PM.png)
 
